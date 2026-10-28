@@ -8,7 +8,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { posix } from 'node:path'
+import { posix, relative } from 'node:path'
 import type { Readable } from 'node:stream'
 import type { SFTPWrapper, Stats } from 'ssh2'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -23,7 +23,8 @@ import type {
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 import { quoteShellArg } from './runtime.ts'
-import { parseSshTargetKey, resolveSshCwd, resolveSshTargetKey, sshTargetKey } from './transport.ts'
+import type { SshRegistry } from './registry.ts'
+import { parseSshTargetKey, resolveSshCwd, resolveSshTargetKey, sshRoutesRoot, sshTargetKey } from './transport.ts'
 import type { SshTransport } from './transport.ts'
 
 const BINARY_SAMPLE_BYTES = 8192
@@ -137,6 +138,35 @@ export class SshFileSystem extends FileSystem {
     return resolveSshTargetKey(this.ctx, String(target.targetKey))
   }
 
+  /** Parse an absolute hub placeholder path into its registry connection and remote path. */
+  private placeholderRoute(path: string): { transport: SshTransport; base: string; connectionId: string } | undefined {
+    if (!posix.isAbsolute(path) || !path.toLowerCase().includes('dsh-ssh-routes')) return undefined
+    const rel = relative(sshRoutesRoot(), path)
+    if (rel === '' || rel.startsWith('..') || posix.isAbsolute(rel)) return undefined
+    const segments = rel.split(/[\\/]+/).filter(segment => segment !== '')
+    const id = segments.shift()
+    if (id === undefined || !/^[A-Za-z0-9._-]+$/.test(id)) return undefined
+    const connection = (this.ctx.get('sshRegistry') as SshRegistry | undefined)?.get(id)
+    if (connection === undefined) return undefined
+    return { transport: connection, base: `/${segments.join('/')}`, connectionId: id }
+  }
+
+  /** Route one raw path argument: a placeholder names its own connection, otherwise the cwd decides. */
+  private routeFor(path: string, cwd: string | undefined): { transport: SshTransport; base: string; connectionId?: string } {
+    if (cwd === undefined) {
+      const placeholder = this.placeholderRoute(path)
+      if (placeholder !== undefined) return placeholder
+    }
+    return this.routeCwd(cwd)
+  }
+
+  /** Map a caller path onto its target transport's remote path. */
+  private remotePathFor(route: { transport: SshTransport; base: string; connectionId?: string }, path: string): string {
+    const placeholder = this.placeholderRoute(path)
+    if (placeholder !== undefined && placeholder.connectionId === route.connectionId) return placeholder.base
+    return posix.resolve(route.base, path)
+  }
+
   private pathOf(target: FsTarget): string {
     return this.routeTarget(target).path
   }
@@ -148,8 +178,8 @@ export class SshFileSystem extends FileSystem {
   override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
     assertNotAborted(opts?.signal, 'resolve')
     if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
-    const route = this.routeCwd(opts?.cwd)
-    const remotePath = posix.resolve(route.base, path)
+    const route = this.routeFor(path, opts?.cwd)
+    const remotePath = this.remotePathFor(route, path)
     const displayPath = route.connectionId === undefined ? remotePath : sshTargetKey(route.connectionId, remotePath)
     try {
       const canonical = await this.canonicalPath(remotePath, opts?.signal, route.transport)
@@ -195,7 +225,7 @@ export class SshFileSystem extends FileSystem {
     assertNotAborted(signal, 'lstat')
     if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
     const route = this.routeCwd(opts?.cwd)
-    const displayPath = posix.resolve(route.base, path)
+    const displayPath = this.remotePathFor(route, path)
     const sftp = await route.transport.getSftp()
     try {
       const stats = await new Promise<Stats>((resolve, reject) => {
