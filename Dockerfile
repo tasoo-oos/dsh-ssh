@@ -34,8 +34,14 @@ RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" "pnpm@${PNPM_VERSION}" \
 COPY --from=plugin /out/dsh-ssh-*.tgz /opt/dsh/pkgs/
 COPY --from=plugin /src/.built-from /opt/dsh/dsh-ssh.rev
 # Bake the web profile so the runtime needs no package manager or network.
+# pnpm 11 refuses to install native deps whose build scripts are not approved;
+# ssh2, cpu-features and koffi all ship prebuilt binaries, so deny the builds
+# explicitly (same policy as the previous hand-managed profile).
 ENV DSH_HOME=/opt/dsh
-RUN dsh plugin --profile web add /opt/dsh/pkgs/dsh-ssh-*.tgz
+RUN dsh --profile web --dump-config > /dev/null \
+ && printf 'allowBuilds:\n  cpu-features: false\n  koffi: false\n  ssh2: false\n' \
+      >> /opt/dsh/profiles/web/pnpm-workspace.yaml \
+ && dsh plugin --profile web add /opt/dsh/pkgs/dsh-ssh-*.tgz
 RUN printf 'dsh=%s\ndsh-ssh=%s\nbase=%s\n' \
       "${DSH_VERSION}" "$(cat /opt/dsh/dsh-ssh.rev)" "${NODE_IMAGE}" \
       > /etc/dsh-build.json
