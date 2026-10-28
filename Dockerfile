@@ -45,6 +45,9 @@ RUN dsh --profile web --dump-config > /dev/null \
 RUN printf 'dsh=%s\ndsh-ssh=%s\nbase=%s\n' \
       "${DSH_VERSION}" "$(cat /opt/dsh/dsh-ssh.rev)" "${NODE_IMAGE}" \
       > /etc/dsh-build.json
+# The bake runs as root and dsh writes the profile manifest 0600 root; the
+# container runs as node, so hand the baked profile over.
+RUN chown -R node:node /opt/dsh
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN chmod 0755 /usr/local/bin/dsh-entrypoint
 ENV DSH_HOME=/data/dsh \
