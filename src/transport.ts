@@ -111,7 +111,16 @@ export function resolveSshCwd(ctx: Context, cwd: string | undefined): SshCwdRout
       const registry = ctx.get('sshRegistry') as SshRegistry | undefined
       const connection = registry?.get(parsed.id)
       if (connection === undefined) {
-        throw new Error(`dsh-ssh: remote working directory names unknown connection "${parsed.id}" (is dsh-ssh/web mounted?)`)
+        if (cwd.startsWith('ssh://')) {
+          throw new Error(`dsh-ssh: remote working directory names unknown connection "${parsed.id}" (is dsh-ssh/web mounted?)`)
+        }
+        /* Same rationale as resolveSshTargetKey below: a path under the
+           routes root whose first segment is not a live connection
+           (e.g. <routesRoot>/.git probed by an upward marker walk) is
+           not a route. Fall back to the aggregate transport so callers
+           see an ordinary not-found instead of an exception that aborts
+           the whole turn. */
+        return { transport: ctx.ssh as unknown as SshTransport, cwd: (ctx.ssh as SshRuntime).resolveRemoteCwd(cwd) }
       }
       return { transport: connection, cwd: parsed.path, connectionId: parsed.id }
     }
@@ -128,7 +137,11 @@ export function resolveSshTargetKey(ctx: Context, targetKey: string): SshCwdRout
   const registry = ctx.get('sshRegistry') as SshRegistry | undefined
   const connection = registry?.get(parsed.connectionId)
   if (connection === undefined) {
-    throw new Error(`dsh-ssh: target names unknown connection "${parsed.connectionId}" (is dsh-ssh/web mounted?)`)
+    /* A path under the routes root whose first segment is not a live
+       connection (e.g. <routesRoot>/.git probed by an upward marker
+       walk) is not a route: fall back to the aggregate transport so
+       callers see an ordinary not-found instead of an exception. */
+    return { transport: ctx.ssh as unknown as SshTransport, cwd: (ctx.ssh as SshRuntime).resolveRemoteCwd(targetKey), path: targetKey }
   }
   return { transport: connection, cwd: parsed.path, connectionId: parsed.connectionId, path: parsed.path }
 }
