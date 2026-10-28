@@ -155,6 +155,12 @@ export class SshConnection {
   private sftpOpening: Promise<SFTPWrapper> | undefined
   private remoteEnvironment: Promise<Record<string, string>> | undefined
   private disposed = false
+  private closed = false
+
+  /** True once the connection is disposed or its transport dropped. */
+  get unusable(): boolean {
+    return this.disposed || this.closed
+  }
 
   /** The transport's default remote working directory. */
   get cwd(): string {
@@ -171,7 +177,7 @@ export class SshConnection {
     // Tailscale/DERP-relayed paths routinely exceed 20s to ready (observed
     // 4–20s variance); OpenSSH has no client-side handshake cap at all.
     const readyTimeout = spec.readyTimeout ?? 45_000
-    const keepaliveInterval = spec.keepaliveInterval ?? 0
+    const keepaliveInterval = spec.keepaliveInterval ?? 30_000
     const keepaliveCountMax = spec.keepaliveCountMax ?? 3
     const parent: ResolvedHop = {
       host: spec.host,
@@ -239,11 +245,26 @@ export class SshConnection {
   async getClient(signal?: AbortSignal): Promise<Client> {
     signal?.throwIfAborted()
     if (this.disposed) throw new Error(`dsh-ssh: connection "${this.label}" is disposed`)
+    if (this.closed) {
+      for (const stale of this.clients) {
+        try { stale.end() } catch { /* already quiescent */ }
+      }
+      this.clients = []
+      this.closed = false
+      this.ready = undefined
+      this.sftp = undefined
+      this.sftpOpening = undefined
+    }
     this.ready ??= this.open()
     let client: Client
     try {
       client = await this.ready
     } catch (error) {
+      /* A failed handshake must not poison the entry forever: the peer
+         may simply be down (reboot) and back later. */
+      this.ready = undefined
+      this.sftp = undefined
+      this.sftpOpening = undefined
       throw rewrapConnectError(error, this.label, this.endpoint)
     }
     signal?.throwIfAborted()
@@ -344,6 +365,15 @@ export class SshConnection {
         const previous = clients[index - 1]
         const client = new Client()
         clients.push(client)
+        const forget = (): void => {
+          if (!this.clients.includes(client)) return
+          this.closed = true
+          this.ready = undefined
+          this.sftp = undefined
+          this.sftpOpening = undefined
+        }
+        client.once('close', forget)
+        client.on('error', forget)
         const config = toConnectConfig(hop, undefined)
         if (this.strict) config.hostVerifier = hostVerifierFor(this.knownHosts)
         if (previous === undefined) {
