@@ -15,7 +15,8 @@ ARG DSH_SSH_REPO=https://github.com/tasoo-oos/dsh-ssh.git
 ARG DSH_SSH_REF=beta
 RUN git clone --depth 1 --branch "${DSH_SSH_REF}" "${DSH_SSH_REPO}" /src \
  && git rev-parse HEAD > /src/.built-from
-RUN npm ci --no-audit --no-fund \
+RUN mkdir -p /out \
+ && npm ci --no-audit --no-fund \
  && npm run build \
  && npx tsc --noEmit \
  && npm pack --pack-destination /out
