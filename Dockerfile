@@ -13,7 +13,11 @@ RUN apt-get update \
 WORKDIR /src
 ARG DSH_SSH_REPO=https://github.com/tasoo-oos/dsh-ssh.git
 ARG DSH_SSH_REF=beta
-RUN git clone --depth 1 --branch "${DSH_SSH_REF}" "${DSH_SSH_REPO}" /src \
+# DSH_SSH_SHA busts the layer cache: without it a rebuild silently reuses the
+# clone from a previous build.
+ARG DSH_SSH_SHA=unknown
+RUN echo "requested dsh-ssh ${DSH_SSH_REF} ${DSH_SSH_SHA}" \
+ && git clone --depth 1 --branch "${DSH_SSH_REF}" "${DSH_SSH_REPO}" /src \
  && git rev-parse HEAD > /src/.built-from
 RUN mkdir -p /out \
  && npm ci --no-audit --no-fund \
