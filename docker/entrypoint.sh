@@ -12,7 +12,8 @@ fi
 if [ -f /certs/fullchain.pem ] && [ -f /certs/privkey.pem ]; then
   set -- "$@" --tls-cert /certs/fullchain.pem --tls-key /certs/privkey.pem
 fi
-[ -n "${DSH_OVERLAY:-}" ] && [ -f "${DSH_OVERLAY}" ] && set -- "$@" --patch "$DSH_OVERLAY"
+# --patch is a launcher flag: it must precede the app name, not follow it.
+[ -n "${DSH_OVERLAY:-}" ] && [ -f "${DSH_OVERLAY}" ] && set -- --patch "$DSH_OVERLAY" "$@"
 
 # The volume owns state only; the profile lives in the image. Symlink it in on
 # first boot so `dsh plugin add` from the UI cannot silently diverge the code.
