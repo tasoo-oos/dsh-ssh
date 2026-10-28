@@ -502,7 +502,10 @@ export class SshFileSystem extends FileSystem {
         if (publication.stdout !== 'created') throw new Error('guarded create returned an invalid publication result')
       } else {
         await new Promise<void>((resolve, reject) => {
-          sftp.rename(temporary, targetPath, error => { if (error !== undefined) reject(error); else resolve() })
+          /* OpenSSH's sftp-server answers SSH_FXP_RENAME with SSH_FX_FAILURE when the
+             destination exists; overwriting requires posix-rename@openssh.com. */
+          const publish = typeof sftp.ext_openssh_rename === 'function' ? sftp.ext_openssh_rename.bind(sftp) : sftp.rename.bind(sftp)
+          publish(temporary, targetPath, error => { if (error !== undefined) reject(error); else resolve() })
         })
       }
       assertNotAborted(signal, 'write')
@@ -519,6 +522,9 @@ export class SshFileSystem extends FileSystem {
   private async removeStaging(directory: string, transport: SshTransport = this.ctx.ssh as unknown as SshTransport): Promise<void> {
     const sftp = await transport.getSftp()
     try {
+      await new Promise<void>((resolve) => {
+        sftp.unlink(`${directory}/content`, () => resolve())
+      })
       await new Promise<void>((resolve, reject) => {
         sftp.rmdir(directory, error => { if (error !== undefined) reject(error); else resolve() })
       })
