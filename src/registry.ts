@@ -240,6 +240,10 @@ export class SshRegistry extends Service {
     const spec = this.specs.get(id)
     if (spec === undefined) return undefined
     let connection = this.live.get(id)
+    if (connection !== undefined && connection.unusable) {
+      this.live.delete(id)
+      connection = undefined
+    }
     if (connection === undefined) {
       connection = new SshConnection(spec)
       this.live.set(id, connection)
