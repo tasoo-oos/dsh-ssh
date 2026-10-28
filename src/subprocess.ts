@@ -9,7 +9,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import { SubprocessExecutableNotFoundError, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,
   SubprocessSpawnSpec,
@@ -82,7 +82,7 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
       )
       signal?.throwIfAborted()
       if (result.exitCode !== 0) {
-        throw new Error(`subprocess-ssh: command ${JSON.stringify(command)} is not an executable file`)
+        throw new SubprocessExecutableNotFoundError(`subprocess-ssh: command ${JSON.stringify(command)} is not an executable file`)
       }
       return command
     }
@@ -96,10 +96,10 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
     const result = await this.ctx.ssh.exec(`${prefix}command -v -- ${quoteShellArg(command)}`, signal !== undefined ? { signal } : undefined)
     signal?.throwIfAborted()
     const executable = result.stdout.trim()
-    if (result.exitCode !== 0
-      || executable.length === 0
-      || executable.includes('\n')
-      || (!posix.isAbsolute(executable) && !executable.includes('/'))) {
+    if (result.exitCode !== 0 || executable.length === 0) {
+      throw new SubprocessExecutableNotFoundError(`subprocess-ssh: executable ${JSON.stringify(command)} did not resolve to one absolute path`)
+    }
+    if (executable.includes('\n') || (!posix.isAbsolute(executable) && !executable.includes('/'))) {
       throw new Error(`subprocess-ssh: executable ${JSON.stringify(command)} did not resolve to one absolute path`)
     }
     return posix.isAbsolute(executable) ? executable : posix.resolve(this.ctx.ssh.cwd, executable)
