@@ -27,7 +27,7 @@ RUN mkdir -p /out \
 
 FROM ${NODE_IMAGE} AS runtime
 ARG NODE_IMAGE
-ARG DSH_VERSION=0.2.1-rc.5
+ARG DSH_VERSION=0.2.2-rc.1
 ARG PNPM_VERSION=11.22.0
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
