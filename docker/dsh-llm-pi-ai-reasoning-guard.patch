@@ -1,0 +1,16 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1990,7 +1990,12 @@
+ 				...options,
+ 				tools: [ANTHROPIC_TOOL_UPDATE_PLACEHOLDER, ...tools]
+ 			} : options;
+-			const reasoning = resolveReasoningLevel(model, options.reasoningEffort ?? profile.reasoning);
++			// A route-level default applies only to models that can reason: a
++			// non-reasoning model omits the reasoning option entirely, while an
++			// explicit effort is still validated strictly below.
++			const reasoning = options.reasoningEffort === void 0 && !model.reasoning
++				? void 0
++				: resolveReasoningLevel(model, options.reasoningEffort ?? profile.reasoning);
+ 			const apiKey = await this.config.resolveApiKey(options.provider, profile);
+ 			const consumer = new AbortController();
+ 			const upstream = options.signal === void 0 ? consumer.signal : AbortSignal.any([options.signal, consumer.signal]);
