@@ -35,6 +35,17 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" "pnpm@${PNPM_VERSION}" \
  && dsh --version
+
+# dsh 0.2.2-rc.1 has no per-model default reasoning: a route's `reasoning`
+# applies to every model on it, and a level a model cannot take is refused
+# (UNSUPPORTED_REASONING_EFFORT) rather than ignored — so a route default
+# cannot sit beside a non-reasoning model. This guard binds the route default
+# only to models that can reason. Remove once upstream ships per-model
+# defaults (deepseek-harness discussion #4627).
+COPY docker/dsh-llm-pi-ai-reasoning-guard.patch /tmp/
+RUN cd /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-llm-pi-ai \
+ && git apply --verbose /tmp/dsh-llm-pi-ai-reasoning-guard.patch \
+ && grep -q 'options.reasoningEffort === void 0 && !model.reasoning' lib/index.js
 COPY --from=plugin /out/dsh-ssh-*.tgz /opt/dsh/pkgs/
 COPY --from=plugin /src/.built-from /opt/dsh/dsh-ssh.rev
 # Bake the web profile so the runtime needs no package manager or network.
