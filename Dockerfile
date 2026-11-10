@@ -76,7 +76,9 @@ COPY --from=plugin /out/dsh-ssh-*.tgz /opt/dsh/pkgs/
 COPY --from=plugin /src/.built-from /opt/dsh/dsh-ssh.rev
 COPY --from=kanban /out/dsh-kanban-flow-*.tgz /opt/dsh/pkgs/
 COPY --from=kanban /src/.built-from /opt/dsh/dsh-kanban-flow.rev
-# Bake the web profile so the runtime needs no package manager or network.
+# Bake the web profile so the runtime needs no package manager or network. Both
+# plugins are added in one pnpm run: a second `dsh plugin add` in the same layer
+# hung after its install and pruned already-installed packages.
 # pnpm 11 refuses to install native deps whose build scripts are not approved;
 # ssh2, cpu-features and koffi all ship prebuilt binaries, so deny the builds
 # explicitly (same policy as the previous hand-managed profile).
@@ -84,8 +86,8 @@ ENV DSH_HOME=/opt/dsh
 RUN dsh --profile web --dump-config > /dev/null \
  && printf 'allowBuilds:\n  cpu-features: false\n  koffi: false\n  ssh2: false\n' \
       >> /opt/dsh/profiles/web/pnpm-workspace.yaml \
- && dsh plugin --profile web add /opt/dsh/pkgs/dsh-ssh-*.tgz \
- && dsh plugin --profile web add /opt/dsh/pkgs/dsh-kanban-flow-*.tgz
+ && dsh plugin --profile web add \
+      /opt/dsh/pkgs/dsh-ssh-*.tgz /opt/dsh/pkgs/dsh-kanban-flow-*.tgz
 RUN printf 'dsh=%s\ndsh-ssh=%s\ndsh-kanban-flow=%s\nbase=%s\n' \
       "${DSH_VERSION}" "$(cat /opt/dsh/dsh-ssh.rev)" \
       "$(cat /opt/dsh/dsh-kanban-flow.rev)" "${NODE_IMAGE}" \
