@@ -1,7 +1,6 @@
-# Deployment image: dsh (npm pin) + this repository's beta branch + the
-# tasoo-oos kanban plugin fork + a baked web profile. Host-specific
-# configuration is NOT baked in: it is mounted at /etc/dsh/overlay/web.yml and
-# applied with `dsh --patch` by the entrypoint.
+# Deployment image: dsh (npm pin) + this repository's beta branch + a baked
+# web profile. Host-specific configuration is NOT baked in: it is mounted at
+# /etc/dsh/overlay/web.yml and applied with `dsh --patch` by the entrypoint.
 #
 # Build:  docker build --build-arg DSH_SSH_REF=beta -t dsh:beta .
 # Probe:  docker exec <ctr> dsh --profile web --dump-config | grep ssh-remote
@@ -26,34 +25,11 @@ RUN mkdir -p /out \
  && npx tsc --noEmit \
  && npm pack --pack-destination /out
 
-# The kanban board plugin is a third-party bundle from our fork. Its published
-# tarball ships the *committed* lib/client.js, and the fork's topic branches
-# deliberately do not commit rebuilt bundles, so the image builds it here:
-# tests, typecheck and bundle run on the cloned source and the packed tarball
-# carries that bundle.
-FROM ${NODE_IMAGE} AS kanban
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates git \
- && rm -rf /var/lib/apt/lists/*
-WORKDIR /src
-ARG DSH_KANBAN_REPO=https://github.com/tasoo-oos/dsh-kanban-flow.git
-ARG DSH_KANBAN_REF=topic/global-board
-# DSH_KANBAN_SHA busts the layer cache: without it a rebuild silently reuses
-# the clone from a previous build.
-ARG DSH_KANBAN_SHA=unknown
-RUN echo "requested dsh-kanban-flow ${DSH_KANBAN_REF} ${DSH_KANBAN_SHA}" \
- && git clone --depth 1 --branch "${DSH_KANBAN_REF}" "${DSH_KANBAN_REPO}" /src \
- && git rev-parse HEAD > /src/.built-from
-RUN mkdir -p /out \
- && npm ci --no-audit --no-fund \
- && npm test \
- && npm run build \
- && npx tsc --noEmit \
- && npm pack --pack-destination /out
-
+# The kanban board plugin (dsh-kanban-flow) was removed on 2026-11-13; the
+# image bakes only the dsh-ssh plugin again.
 FROM ${NODE_IMAGE} AS runtime
 ARG NODE_IMAGE
-ARG DSH_VERSION=0.2.2-rc.1
+ARG DSH_VERSION=0.2.2-rc.3
 ARG PNPM_VERSION=11.22.0
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -62,7 +38,7 @@ RUN apt-get update \
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" "pnpm@${PNPM_VERSION}" \
  && dsh --version
 
-# dsh 0.2.2-rc.1 has no per-model default reasoning: a route's `reasoning`
+# dsh 0.2.2-rc.3 has no per-model default reasoning: a route's `reasoning`
 # applies to every model on it, and a level a model cannot take is refused
 # (UNSUPPORTED_REASONING_EFFORT) rather than ignored — so a route default
 # cannot sit beside a non-reasoning model. This guard binds the route default
@@ -74,11 +50,7 @@ RUN cd /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/ds
  && grep -q 'options.reasoningEffort === void 0 && !model.reasoning' lib/index.js
 COPY --from=plugin /out/dsh-ssh-*.tgz /opt/dsh/pkgs/
 COPY --from=plugin /src/.built-from /opt/dsh/dsh-ssh.rev
-COPY --from=kanban /out/dsh-kanban-flow-*.tgz /opt/dsh/pkgs/
-COPY --from=kanban /src/.built-from /opt/dsh/dsh-kanban-flow.rev
-# Bake the web profile so the runtime needs no package manager or network. Both
-# plugins are added in one pnpm run: a second `dsh plugin add` in the same layer
-# hung after its install and pruned already-installed packages.
+# Bake the web profile so the runtime needs no package manager or network.
 # pnpm 11 refuses to install native deps whose build scripts are not approved;
 # ssh2, cpu-features and koffi all ship prebuilt binaries, so deny the builds
 # explicitly (same policy as the previous hand-managed profile).
@@ -86,11 +58,9 @@ ENV DSH_HOME=/opt/dsh
 RUN dsh --profile web --dump-config > /dev/null \
  && printf 'allowBuilds:\n  cpu-features: false\n  koffi: false\n  ssh2: false\n' \
       >> /opt/dsh/profiles/web/pnpm-workspace.yaml \
- && dsh plugin --profile web add \
-      /opt/dsh/pkgs/dsh-ssh-*.tgz /opt/dsh/pkgs/dsh-kanban-flow-*.tgz
-RUN printf 'dsh=%s\ndsh-ssh=%s\ndsh-kanban-flow=%s\nbase=%s\n' \
-      "${DSH_VERSION}" "$(cat /opt/dsh/dsh-ssh.rev)" \
-      "$(cat /opt/dsh/dsh-kanban-flow.rev)" "${NODE_IMAGE}" \
+ && dsh plugin --profile web add /opt/dsh/pkgs/dsh-ssh-*.tgz
+RUN printf 'dsh=%s\ndsh-ssh=%s\nbase=%s\n' \
+      "${DSH_VERSION}" "$(cat /opt/dsh/dsh-ssh.rev)" "${NODE_IMAGE}" \
       > /etc/dsh-build.json
 # The bake runs as root and dsh writes the profile manifest 0600 root; the
 # container runs as node, so hand the baked profile over.
