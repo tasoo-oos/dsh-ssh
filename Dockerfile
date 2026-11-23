@@ -29,7 +29,7 @@ RUN mkdir -p /out \
 # image bakes only the dsh-ssh plugin again.
 FROM ${NODE_IMAGE} AS runtime
 ARG NODE_IMAGE
-ARG DSH_VERSION=0.2.2-rc.3
+ARG DSH_VERSION=0.2.2-rc.5
 ARG PNPM_VERSION=11.22.0
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -38,7 +38,7 @@ RUN apt-get update \
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" "pnpm@${PNPM_VERSION}" \
  && dsh --version
 
-# dsh 0.2.2-rc.3 has no per-model default reasoning: a route's `reasoning`
+# dsh 0.2.2 has no per-model default reasoning: a route's `reasoning`
 # applies to every model on it, and a level a model cannot take is refused
 # (UNSUPPORTED_REASONING_EFFORT) rather than ignored — so a route default
 # cannot sit beside a non-reasoning model. This guard binds the route default
