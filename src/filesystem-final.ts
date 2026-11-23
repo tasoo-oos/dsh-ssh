@@ -28,7 +28,7 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import { quoteShellArg } from './runtime.ts'
 import { LocalFileSystem, isLocalAbsolutePath } from './filesystem-local.ts'
-import { isSshRoutePlaceholder, resolveSshPath, resolveSshTargetKey, sshTargetKey } from './transport.ts'
+import { isSshRoutePlaceholder, resolveSshPath, resolveSshTargetKey, sshRoutePlaceholder, sshTargetKey } from './transport.ts'
 import type { SshTransport } from './transport.ts'
 
 const BINARY_SAMPLE_BYTES = 8192
@@ -195,9 +195,18 @@ export class SshFileSystem extends FileSystem {
     }
   }
 
+  /**
+   * The path a spawned process opens. A routed target must keep its route:
+   * every Session persists this value as its working directory and started
+   * child Sessions inherit it, so a bare remote path would strand them on the
+   * aggregate connection (the hub host) instead of the connection their
+   * workspace was opened against. The local placeholder is the canonical route
+   * spelling that `resolveSshCwd` maps back to the registry connection.
+   */
   override processPath(target: FsTarget): string {
     if (this.targetIsLocal(target)) return this.local.processPath(target)
-    return this.pathOf(target)
+    const route = this.routeTarget(target)
+    return route.connectionId === undefined ? route.path : sshRoutePlaceholder(route.connectionId, route.path)
   }
 
   override fileUrl(target: FsTarget): string {
