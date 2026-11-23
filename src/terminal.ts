@@ -50,7 +50,8 @@ export class SshTerminalHandle implements SubprocessTerminalHandle {
     if (this.topLevelExited) return Promise.reject(new Error('terminal process has exited'))
     return new Promise<void>((resolve, reject) => {
       this.channel.write(Buffer.from(data, 'utf8'), (error) => {
-        if (error !== undefined) reject(error)
+        /* ssh2 reports success as null, not undefined. */
+        if (error !== undefined && error !== null) reject(error)
         else resolve()
       })
     })
@@ -142,15 +143,16 @@ export async function spawnSshTerminal(ssh: SshTransport, cwd: string, spec: Sub
   const environment = serializeEnvironment(scrubRemoteEnvironment(remote), spec.env)
   const client = await ssh.getClient()
   spec.signal?.throwIfAborted()
+  const argv = spec.argv.map(quoteShellArg).join(' ')
+  const command = `cd ${quoteShellArg(cwd)} && exec env -i -- ${environment} ${argv}`
+  /* Exec with a PTY: no login shell, so no banner, no echoed launch line. */
   const channel = await new Promise<ClientChannel>((resolve, reject) => {
-    client.shell({ term: 'xterm-256color', rows: spec.rows, cols: spec.cols }, (error, stream) => {
+    client.exec(command, { pty: { term: 'xterm-256color', rows: spec.rows, cols: spec.cols } }, (error, stream) => {
       if (error !== undefined) reject(error)
       else resolve(stream)
     })
   })
   const handle = new SshTerminalHandle(channel, spec.graceMs)
-  const argv = spec.argv.map(quoteShellArg).join(' ')
-  await handle.write(`cd ${quoteShellArg(cwd)} && exec env -i -- ${environment} ${argv}\r`)
   spec.signal?.throwIfAborted()
   return handle
 }
